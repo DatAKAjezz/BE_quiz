@@ -7,7 +7,7 @@ const app = express();
 db.query('SHOW DATABASES;', (err, results) => {
   if (err) throw err;
   console.log('Danh sách databases:', results);
-  results.forEach((table)  => {console.log(table)})
+  // results.forEach((table)  => {console.log(table)})
 });
 
 app.get('/api/quizzes', (req, res) => {
