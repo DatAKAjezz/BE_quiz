@@ -3,7 +3,7 @@ const mysql = require('mysql');
 const connection = mysql.createConnection({
   host: 'localhost',     
   user: 'datdat',            
-  password: 'datdat2kk5',            
+  password: '',            
   database: 'quiz_app'    
 });
 
@@ -13,6 +13,6 @@ connection.connect((err) => {
     return;
   }
   console.log('Đã kết nối MySQL với ID: ' + connection.threadId);
-});
+}); 
 
 module.exports = connection;
