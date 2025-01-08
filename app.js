@@ -3,7 +3,7 @@ const mysql = require('mysql');
 const db = require('./src/config/db');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const { authenticaionToken } = require('./src/middlewares/authMiddlewares');
+const { authenticationToken } = require('./src/middlewares/authMiddlewares');
 
 const app = express();
 
@@ -54,10 +54,63 @@ app.post('/signup', (req, res) => {
   });
 });
 
-app.get('/dashboard', authenticaionToken, (req, res) => {
-  res.json({ message: `Welcome ${req.user.username}`})
-})
+app.get('/dashboard', authenticationToken, (req, res) => {
 
+  const username = req.user.username;  
+  
+  const query = 'SELECT * FROM users WHERE username = ? LIMIT 1';
+  db.query(query, [username], (err, results) => {
+    if (err) {
+      console.log("Error: ", err);
+      return res.status(500).json({
+        success: false, 
+        message: 'Internal server error when fetching user data'
+      });
+    }
+    
+    if (results.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      }); 
+    }
+
+    res.json({ 
+      success: true, 
+      data: results
+    });
+  });
+});
+
+app.get('/library',authenticationToken, (req, res) => {
+
+  const id = req.user.id;
+  console.log("USER ID: ", id);
+  
+  const query = `SELECT * from
+                  users u 
+                  JOIN study_history sh ON u.id = sh.user_id
+                  JOIN flashcard_sets fs ON fs.id = sh.id
+                  WHERE u.id = ?`
+
+  db.query(query, [id], (err, results) => {
+    if (err){
+      console.log('Error: ', err);
+      return res.json({success: false, message: 'Internal server error at /library'})
+    }
+    if (results.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'History not found'
+      }); 
+    }
+    console.log('History: ', results);
+    res.json({ 
+      success: true, 
+      data: results
+    });
+  })
+})
 
 app.get('/api/quizzes', (req, res) => {
   db.query('SELECT * FROM quizzes', (err, result) => {
