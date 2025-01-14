@@ -8,11 +8,11 @@ const connection = mysql.createConnection({
 });
 
 connection.connect((err) => {
-  if (err) {
+  if (err) {  
     console.error('Kết nối thất bại: ' + err.stack);
     return;
   }
   console.log('Đã kết nối MySQL với ID: ' + connection.threadId);
-}); 
+});
 
 module.exports = connection;

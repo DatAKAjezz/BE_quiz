@@ -4,22 +4,47 @@ const db = require('./src/config/db');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { authenticationToken } = require('./src/middlewares/authMiddlewares');
+const upload = require('./src/config/multerConfig');
+const path = require("path");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json())
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 require('dotenv').config();
 const SECRET_KEY = process.env.SECRET_KEY;
 
-// console.log(SECRET_KEY);
-
 db.query('SHOW DATABASES;', (err, results) => {
   if (err) throw err;
-  // console.log('Danh sách databases:', results);
-  // results.forEach((table)  => {console.log(table)})
 });
+
+app.get('/', (req, res) => {
+  res.json({message: 'Sup!?'})
+})
+
+// MARK: image upload
+app.post('/upload', upload.single('image'), (req, res) => {
+  const { userId } = req.body;
+  const imagePath = `/uploads/${req.file.filename}`
+  const query = 'UPDATE users SET image_path = ? WHERE id = ?'
+
+  db.query(query, [imagePath, userId], (err, result) => {
+    if (err) return res.status(500).json({message: err.message})
+    res.status(200).json({message: 'Image uploaded', path: imagePath})
+  })
+})
+
+app.get("/images/:userId", (req, res) => {
+  const userId = req.params.userId;
+  const query = 'SELECT * FROM users WHERE id = ? LIMIT 1'
+
+  db.query(query, [userId], (err, result) => {
+    if (err) res.status(500).json({message: err.message})
+    res.status(200).json({data: result});
+  })
+})
 
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
@@ -31,17 +56,15 @@ app.post('/login', (req, res) => {
     }
     if (results.length > 0) {
       const token = jwt.sign({ id: results[0].id, username: results[0].username }, SECRET_KEY, { expiresIn: '1h' })
-      // console.log(token);
       res.json({ success: true, token, message: 'Login successfully.' })
     } else {
-      res.status(401).json({ success: false, message: 'Invalid credentials' })
+      res.json({ success: false, message: 'Invalid credentials' })
     }
   })
 })
 
 app.post('/signup', (req, res) => {
   const { username, password } = req.body;
-
   const email = 'a@gmail.com';
 
   const query = 'INSERT INTO users (username, password, email) VALUES (?, ?, ?)';
@@ -55,12 +78,9 @@ app.post('/signup', (req, res) => {
 });
 
 app.get('/dashboard', authenticationToken, (req, res) => {
-
   const username = req.user.username;
 
-  const query = `SELECT * FROM 
-                 users u JOIN user_introductions ui ON u.id = ui.user_id  
-                 WHERE username = ? LIMIT 1`;
+  const query = 'SELECT * FROM users u JOIN user_introductions ui ON u.id = ui.user_id WHERE username = ? LIMIT 1';
   db.query(query, [username], (err, results) => {
     if (err) {
       console.log("Error: ", err);
@@ -84,28 +104,21 @@ app.get('/dashboard', authenticationToken, (req, res) => {
 });
 
 app.get('/flashcardsets/all', (req, res) => {
-  const query = `select * from 
-                 flashcard_sets fs
-                 JOIN flashcards f ON f.set_id = fs.id`
+  const query = 'SELECT * FROM flashcard_sets fs JOIN flashcards f ON f.set_id = fs.id'
   db.query(query, [], (err, results) => {
     if (err){
       res.json({success: false, message: 'Fetching all flashcard sets failed'})
       return;
-    }
+    } 
     res.json({success: true, data: results})
   })
 })
 
 app.get('/library/history', authenticationToken, (req, res) => {
-
   const id = req.user.id;
   console.log("USER ID: ", id);
 
-  const query = `SELECT * from
-                  users u 
-                  JOIN study_history sh ON u.id = sh.user_id
-                  JOIN flashcard_sets fs ON fs.id = sh.id
-                  WHERE u.id = ?`
+  const query = 'SELECT * FROM users u JOIN study_history sh ON u.id = sh.user_id JOIN flashcard_sets fs ON fs.id = sh.id WHERE u.id = ?'
 
   db.query(query, [id], (err, results) => {
     if (err) {
@@ -126,7 +139,6 @@ app.get('/library/history', authenticationToken, (req, res) => {
   })
 })
 
-
 app.get('/api/quizzes', (req, res) => {
   db.query('SELECT * FROM quizzes', (err, result) => {
     if (err) {
@@ -138,13 +150,9 @@ app.get('/api/quizzes', (req, res) => {
 });
 
 app.get('/api/contributions/:userId', (req, res) => {
-
   const userId = req.params.userId;
-  // console.log('USER ID: ', userId);
 
-  const query = `select *  from
-                  users u JOIN contributions c ON u.id = c.user_id
-                  where u.id = ?`
+  const query = 'SELECT * FROM users u JOIN contributions c ON u.id = c.user_id WHERE u.id = ?'
 
   db.query(query, [userId], (err, results) => {
     if (err) {
@@ -154,19 +162,29 @@ app.get('/api/contributions/:userId', (req, res) => {
     }
 
     res.json({ success: true, data: results })
-
   })
+})
 
+app.get('/api/user-info/:userId', (req, res) => {
+  const userId = req.params.userId;
+  const query = 'SELECT * FROM users WHERE id = ? LIMIT 1'
+  
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      res.status(500).json({ error: 'Error fetching user info' });
+      return;
+    }
+    res.json(results[0]);
+  });
 })
 
 app.put('/modify/introduction', (req, res) => {
-
   const { userId, message } = req.body;
   if (!userId || !message) {
     return res.status(400).json({ success: false, message: 'User ID and message are required' });
   }
 
-  const query = `update user_introductions set readme = ? where user_id = ?`
+  const query = 'UPDATE user_introductions SET readme = ? WHERE user_id = ?'
 
   db.query(query, [message, userId], (err, _) => {
     if (err) {
@@ -177,12 +195,42 @@ app.put('/modify/introduction', (req, res) => {
   })
 })
 
-// app.get('/hello', (req, res) => {
-//   console.log("hello")
-//   res.status(500).json({message: 'hello'})
-// })
+app.get('/api/save/card', (req, res) => {
+  const cardId = req.body;
+  console.log('Card ID: ', cardId);
+  
+  if (!cardId){
+    return res.status(400).json({success: false, message: 'Card ID is required'})
+  }
+
+  const query = 'UPDATE flashcards SET learned = true WHERE id = ?'
+  db.query(query, [cardId], (err, _) => {
+    if (err){
+      console.log("Error when update card: ", err);
+      res.json({success: false, message: "Card updated failed"})
+    }
+    res.json({success: true, message: "Card updated successfully"})
+  })
+})
+
+app.get('/api/getall/:setId', (req, res) => {
+  const setId = req.params.setId;
+
+  if (!setId){
+    return res.status(400).json({success: false, message: 'Set ID is required.'})
+  }
+
+  const query = 'SELECT * FROM flashcards WHERE set_id = ?'
+
+  db.query(query, [setId], (err, results) => {
+    if (err){
+      res.json({success: false, message: err})
+      return;
+    }
+    res.json({success: true, data: results})
+  })
+})
 
 app.listen(3001, () => {
   console.log('Server đang chạy tại http://localhost:3001');
 })
-
