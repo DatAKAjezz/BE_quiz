@@ -27,6 +27,9 @@ app.get('/', (req, res) => {
 // MARK: image upload
 app.post('/upload', upload.single('image'), (req, res) => {
   const { userId } = req.body;
+
+  console.log(userId);
+
   const imagePath = `/uploads/${req.file.filename}`
   const query = 'UPDATE users SET image_path = ? WHERE id = ?'
 
@@ -80,7 +83,27 @@ app.post('/signup', (req, res) => {
 app.get('/dashboard', authenticationToken, (req, res) => {
   const username = req.user.username;
 
-  const query = 'SELECT * FROM users u JOIN user_introductions ui ON u.id = ui.user_id WHERE username = ? LIMIT 1';
+  const query = `SELECT u.id AS user_id, 
+                        u.firstname,
+                        u.lastname,
+                        u.username, 
+                        u.email, 
+                        u.role, 
+                        u.avatar_url, 
+                        ui.id AS intro_id, 
+                        ui.readme, 
+                        ui.address, 
+                        ui.social_link 
+                        FROM 
+                            users u 
+                        LEFT JOIN 
+                            user_introductions ui 
+                        ON 
+                            u.id = ui.user_id 
+                        WHERE 
+                            u.username = ?
+                        LIMIT 1`
+
   db.query(query, [username], (err, results) => {
     if (err) {
       console.log("Error: ", err);
@@ -165,18 +188,18 @@ app.get('/api/contributions/:userId', (req, res) => {
   })
 })
 
-app.get('/api/user-info/:userId', (req, res) => {
-  const userId = req.params.userId;
-  const query = 'SELECT * FROM users WHERE id = ? LIMIT 1'
+// app.get('/api/user-info/:userId', (req, res) => {
+//   const userId = req.params.userId;
+//   const query = 'SELECT * FROM users WHERE id = ? LIMIT 1'
   
-  db.query(query, [userId], (err, results) => {
-    if (err) {
-      res.status(500).json({ error: 'Error fetching user info' });
-      return;
-    }
-    res.json(results[0]);
-  });
-})
+//   db.query(query, [userId], (err, results) => {
+//     if (err) {
+//       res.status(500).json({ error: 'Error fetching user info' });
+//       return;
+//     }
+//     res.json(results[0]);
+//   });
+// })
 
 app.put('/modify/introduction', (req, res) => {
   const { userId, message } = req.body;
