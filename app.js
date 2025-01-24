@@ -7,13 +7,17 @@ const { authenticationToken } = require('./src/middlewares/authMiddlewares');
 const upload = require('./src/config/multerConfig');
 const path = require("path");
 const fetchAllFlashCardsAndAnswers = require('./src/helpers/helpers');
+const { Server } = require('socket.io')
+const http = require('http');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json())
-
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+const server = http.createServer(app);
+const io = new Server(server);
 
 require('dotenv').config();
 const SECRET_KEY = process.env.SECRET_KEY;
@@ -217,7 +221,7 @@ app.put('/modify/introduction', async (req, res) => {
 
 const checkDatabase = async (userId, setId, callback) => {
   try {
-    const [rows, fields] = await pool.execute('SELECT * FROM liked_sets WHERE user_id = ? AND set_id = ?', [1, 1]);
+    const [rows, fields] = await pool.execute('SELECT * FROM liked_sets WHERE user_id = ? AND set_id = ?', [userId, setId]);
     console.log("Rows: ", rows);
     if (rows.length > 0) {
 
@@ -234,6 +238,7 @@ const checkDatabase = async (userId, setId, callback) => {
 
 
 app.get('/api/liked/check/:userId/:setId', async (req, res) => {
+  console.log("Checking...")
   const { userId, setId } = req.params;
   checkDatabase(userId, setId, (exists) => {
     if (exists) {
@@ -254,7 +259,7 @@ app.put('/api/liked/add', async (req, res) => {
       try {
         console.log("Removed from liked sets.");
         const [rows, fields] = await pool.execute("DELETE FROM liked_sets WHERE user_id = ? AND set_id = ?", [userId, setId])
-        res.json({ success: false, message: "Removed from liked sets." })
+        res.json({ success: true, message: "UnLiked." })
       }
       catch (error) {
         console.log("Error: ", error);
@@ -268,7 +273,7 @@ app.put('/api/liked/add', async (req, res) => {
           return;
         }
         console.log("Add to liked set!")
-        res.json({ success: true, message: "Add to liked set!" })
+        res.json({ success: true, message: "Liked!" })
       })
     }
   });
