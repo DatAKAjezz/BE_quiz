@@ -1,117 +1,119 @@
 const express = require('express');
-const mysql = require('mysql');
-const db = require('./src/config/db');
+const mysql = require('mysql2/promise');
+const pool = require('./src/config/db');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { authenticationToken } = require('./src/middlewares/authMiddlewares');
 const upload = require('./src/config/multerConfig');
 const path = require("path");
+const fetchAllFlashCardsAndAnswers = require('./src/helpers/helpers');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json())
+
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 require('dotenv').config();
 const SECRET_KEY = process.env.SECRET_KEY;
 
-db.query('SHOW DATABASES;', (err, results) => {
-  if (err) throw err;
-});
+(async () => {
+  try {
+    const [databases] = await pool.query('SHOW DATABASES;');
+    // console.log('Databases:', databases);
+  } catch (err) {
+    console.error('Error fetching databases:', err);
+  }
+})();
 
 app.get('/', (req, res) => {
-  res.json({message: 'Sup!?'})
+  res.json({ message: 'Sup!?' })
 })
 
 // MARK: image upload
-app.post('/upload', upload.single('image'), (req, res) => {
-  const { userId } = req.body;
+app.post('/upload', upload.single('image'), async (req, res) => {
+  try {
+    const { userId } = req.body;
+    const imagePath = `/uploads/${req.file.filename}`
+    const query = 'UPDATE users SET image_path = ? WHERE id = ?'
 
-  console.log(userId);
+    await pool.execute(query, [imagePath, userId]);
+    res.status(200).json({ message: 'Image uploaded', path: imagePath })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+});
 
-  const imagePath = `/uploads/${req.file.filename}`
-  const query = 'UPDATE users SET image_path = ? WHERE id = ?'
+app.get("/images/:userId", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const query = 'SELECT * FROM users WHERE id = ? LIMIT 1'
+    const [result] = await pool.execute(query, [userId]);
+    res.status(200).json({ data: result });
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+});
 
-  db.query(query, [imagePath, userId], (err, result) => {
-    if (err) return res.status(500).json({message: err.message})
-    res.status(200).json({message: 'Image uploaded', path: imagePath})
-  })
-})
-
-app.get("/images/:userId", (req, res) => {
-  const userId = req.params.userId;
-  const query = 'SELECT * FROM users WHERE id = ? LIMIT 1'
-
-  db.query(query, [userId], (err, result) => {
-    if (err) res.status(500).json({message: err.message})
-    res.status(200).json({data: result});
-  })
-})
-
-app.post('/login', (req, res) => {
+app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   const query = 'SELECT * FROM users WHERE username = ? AND password = ?'
-  db.query(query, [username, password], (err, results) => {
-    if (err) {
-      console.log('Error: ', err);
-      return res.status(500).json({ success: false, message: 'Internal server error login' })
-    }
+  
+  try {
+    const [results] = await pool.execute(query, [username, password]);
+    
     if (results.length > 0) {
       const token = jwt.sign({ id: results[0].id, username: results[0].username }, SECRET_KEY, { expiresIn: '1h' })
       res.json({ success: true, token, message: 'Login successfully.' })
     } else {
       res.json({ success: false, message: 'Invalid credentials' })
     }
-  })
+  } catch (err) {
+    console.log('Error: ', err);
+    res.status(500).json({ success: false, message: 'Internal server error login' })
+  }
 })
 
-app.post('/signup', (req, res) => {
-  const { username, password } = req.body;
-  const email = 'a@gmail.com';
-
-  const query = 'INSERT INTO users (username, password, email) VALUES (?, ?, ?)';
-  db.query(query, [username, password, email], (err, results) => {
-    if (err) {
-      console.log('Error: ', err);
-      return res.status(500).json({ success: false, message: 'Internal server error during signup' });
-    }
+app.post('/signup', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const email = 'a@gmail.com';
+    const query = 'INSERT INTO users (username, password, email) VALUES (?, ?, ?)';
+    
+    await pool.execute(query, [username, password, email]);
     res.json({ success: true, message: 'Sign up successfully.' });
-  });
+  } catch (err) {
+    console.log('Error: ', err);
+    res.status(500).json({ success: false, message: 'Internal server error during signup' });
+  }
 });
 
-app.get('/dashboard', authenticationToken, (req, res) => {
-  const username = req.user.username;
+app.get('/dashboard', authenticationToken, async (req, res) => {
+  try {
+    const username = req.user.username;
+    const query = `SELECT u.id AS user_id, 
+                          u.firstname,
+                          u.lastname,
+                          u.username, 
+                          u.email, 
+                          u.role, 
+                          u.avatar_url, 
+                          ui.id AS intro_id, 
+                          ui.readme, 
+                          ui.address, 
+                          ui.social_link 
+                          FROM 
+                              users u 
+                          LEFT JOIN 
+                              user_introductions ui 
+                          ON 
+                              u.id = ui.user_id 
+                          WHERE 
+                              u.username = ?
+                          LIMIT 1`
 
-  const query = `SELECT u.id AS user_id, 
-                        u.firstname,
-                        u.lastname,
-                        u.username, 
-                        u.email, 
-                        u.role, 
-                        u.avatar_url, 
-                        ui.id AS intro_id, 
-                        ui.readme, 
-                        ui.address, 
-                        ui.social_link 
-                        FROM 
-                            users u 
-                        LEFT JOIN 
-                            user_introductions ui 
-                        ON 
-                            u.id = ui.user_id 
-                        WHERE 
-                            u.username = ?
-                        LIMIT 1`
-
-  db.query(query, [username], (err, results) => {
-    if (err) {
-      console.log("Error: ", err);
-      return res.status(500).json({
-        success: false,
-        message: 'Internal server error when fetching user data'
-      });
-    }
+    const [results] = await pool.execute(query, [username]);
 
     if (results.length === 0) {
       return res.status(404).json({
@@ -123,135 +125,191 @@ app.get('/dashboard', authenticationToken, (req, res) => {
       success: true,
       data: results
     });
-  });
+  } catch (err) {
+    console.log("Error: ", err);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error when fetching user data'
+    });
+  }
 });
 
-app.get('/flashcardsets/all', (req, res) => {
-  const query = 'SELECT * FROM flashcard_sets fs JOIN flashcards f ON f.set_id = fs.id'
-  db.query(query, [], (err, results) => {
-    if (err){
-      res.json({success: false, message: 'Fetching all flashcard sets failed'})
-      return;
-    } 
-    res.json({success: true, data: results})
-  })
-})
+app.get('/flashcardsets/all', async (req, res) => {
+  try {
+    const query = `SELECT * FROM flashcard_sets fs JOIN flashcards f ON f.set_id = fs.id`
+    const [results] = await pool.execute(query);
+    res.json({ success: true, data: results })
+  } catch (err) {
+    res.json({ success: false, message: 'Fetching all flashcard sets failed' })
+  }
+});
 
-app.get('/library/history', authenticationToken, (req, res) => {
-  const id = req.user.id;
-  console.log("USER ID: ", id);
+app.get('/library/history', authenticationToken, async (req, res) => {
+  try {
+    const id = req.user.id;
+    const query = 'SELECT * FROM users u JOIN study_history sh ON u.id = sh.user_id JOIN flashcard_sets fs ON fs.id = sh.id WHERE u.id = ?'
+    const [results] = await pool.execute(query, [id]);
 
-  const query = 'SELECT * FROM users u JOIN study_history sh ON u.id = sh.user_id JOIN flashcard_sets fs ON fs.id = sh.id WHERE u.id = ?'
-
-  db.query(query, [id], (err, results) => {
-    if (err) {
-      console.log('Error: ', err);
-      return res.json({ success: false, message: 'Internal server error at /library' })
-    }
     if (results.length === 0) {
       return res.status(404).json({
         success: false,
         message: 'History not found'
       });
     }
-    console.log('History: ', results);
     res.json({
       success: true,
       data: results
     });
-  })
-})
-
-app.get('/api/quizzes', (req, res) => {
-  db.query('SELECT * FROM quizzes', (err, result) => {
-    if (err) {
-      res.status(500).json({ error: 'Lỗi khi lấy dữ liệu' });
-      return;
-    }
-    res.json(result);
-  });
+  } catch (err) {
+    console.log('Error: ', err);
+    res.json({ success: false, message: 'Internal server error at /library' })
+  }
 });
 
-app.get('/api/contributions/:userId', (req, res) => {
-  const userId = req.params.userId;
 
-  const query = 'SELECT * FROM users u JOIN contributions c ON u.id = c.user_id WHERE u.id = ?'
+app.get('/api/quizzes', async (req, res) => {
+  try {
+    const [result] = await pool.execute('SELECT * FROM quizzes');
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: 'Lỗi khi lấy dữ liệu' });
+  }
+});
 
-  db.query(query, [userId], (err, results) => {
-    if (err) {
-      console.log('Error: ', err);
-      res.json({ success: false, message: 'Error at contributions' })
-      return;
-    }
-
+app.get('/api/contributions/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const query = 'SELECT * FROM users u JOIN contributions c ON u.id = c.user_id WHERE u.id = ?'
+    const [results] = await pool.execute(query, [userId]);
     res.json({ success: true, data: results })
-  })
-})
-
-// app.get('/api/user-info/:userId', (req, res) => {
-//   const userId = req.params.userId;
-//   const query = 'SELECT * FROM users WHERE id = ? LIMIT 1'
-  
-//   db.query(query, [userId], (err, results) => {
-//     if (err) {
-//       res.status(500).json({ error: 'Error fetching user info' });
-//       return;
-//     }
-//     res.json(results[0]);
-//   });
-// })
-
-app.put('/modify/introduction', (req, res) => {
-  const { userId, message } = req.body;
-  if (!userId || !message) {
-    return res.status(400).json({ success: false, message: 'User ID and message are required' });
+  } catch (err) {
+    console.log('Error: ', err);
+    res.json({ success: false, message: 'Error at contributions' })
   }
+});
 
-  const query = 'UPDATE user_introductions SET readme = ? WHERE user_id = ?'
+app.get('/api/user-info/:userId', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const query = `SELECT username, password, email, role, created_at, firstname, lastname, image_path
+                   FROM users WHERE id = ? LIMIT 1`
+    const [results] = await pool.execute(query, [userId]);
+    res.json({ success: true, data: results[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: 'Error fetching user info' });
+  }
+});
 
-  db.query(query, [message, userId], (err, _) => {
-    if (err) {
-      res.json({ success: false, message: 'Error change user information.' })
+app.put('/modify/introduction', async (req, res) => {
+  try {
+    const { userId, message } = req.body;
+    if (!userId || !message) {
+      return res.status(400).json({ success: false, message: 'User ID and message are required' });
+    }
+
+    const query = 'UPDATE user_introductions SET readme = ? WHERE user_id = ?'
+    await pool.execute(query, [message, userId]);
+    res.json({ success: true, message: 'User informations updated successfully.' })
+  } catch (err) {
+    res.json({ success: false, message: 'Error changing user information.' })
+  }
+});
+
+const checkDatabase = async (userId, setId, callback) => {
+  try {
+    const [rows, fields] = await pool.execute('SELECT * FROM liked_sets WHERE user_id = ? AND set_id = ?', [1, 1]);
+    console.log("Rows: ", rows);
+    if (rows.length > 0) {
+
+      callback(true);
       return;
     }
-    res.json({ success: true, message: 'User infomations updated successfully.' })
-  })
+    else {
+      callback(false);
+    }
+  } catch (err) {
+    console.error("Error: ", err);
+  }
+}
+
+
+app.get('/api/liked/check/:userId/:setId', async (req, res) => {
+  const { userId, setId } = req.params;
+  checkDatabase(userId, setId, (exists) => {
+    if (exists) {
+      res.json({ exists: true, message: "Already liked" })
+    }
+    else {
+      res.json({ exists: false, message: "Not liked yet" })
+    }
+  });
 })
 
-app.get('/api/save/card', (req, res) => {
-  const cardId = req.body;
-  console.log('Card ID: ', cardId);
-  
-  if (!cardId){
-    return res.status(400).json({success: false, message: 'Card ID is required'})
-  }
+app.put('/api/liked/add', async (req, res) => {
+  const { userId, setId } = req.body;
+  console.log("Adding... " + userId + " " + setId);
 
-  const query = 'UPDATE flashcards SET learned = true WHERE id = ?'
-  db.query(query, [cardId], (err, _) => {
-    if (err){
-      console.log("Error when update card: ", err);
-      res.json({success: false, message: "Card updated failed"})
+  checkDatabase(userId, setId, async (exists) => {
+    if (exists) {
+      try {
+        console.log("Removed from liked sets.");
+        const [rows, fields] = await pool.execute("DELETE FROM liked_sets WHERE user_id = ? AND set_id = ?", [userId, setId])
+        res.json({ success: false, message: "Removed from liked sets." })
+      }
+      catch (error) {
+        console.log("Error: ", error);
+      }
     }
-    res.json({success: true, message: "Card updated successfully"})
-  })
+    else {
+      const query = 'INSERT INTO liked_sets (user_id, set_id) values (? , ?)'
+      pool.query(query, [Number(userId), Number(setId)], (err, result) => {
+        if (err) {
+          res.status(500).json({ success: false, message: "Internal server error" })
+          return;
+        }
+        console.log("Add to liked set!")
+        res.json({ success: true, message: "Add to liked set!" })
+      })
+    }
+  });
+
 })
 
-app.get('/api/getall/:setId', (req, res) => {
-  const setId = req.params.setId;
 
-  if (!setId){
-    return res.status(400).json({success: false, message: 'Set ID is required.'})
-  }
 
-  const query = 'SELECT * FROM flashcards WHERE set_id = ?'
-
-  db.query(query, [setId], (err, results) => {
-    if (err){
-      res.json({success: false, message: err})
-      return;
+app.get('/api/save/card', async (req, res) => {
+  try {
+    const cardId = req.body;
+    if (!cardId) {
+      return res.status(400).json({ success: false, message: 'Card ID is required' })
     }
-    res.json({success: true, data: results})
-  })
+
+    const query = 'UPDATE flashcards SET learned = true WHERE id = ?'
+    await pool.execute(query, [cardId]);
+    res.json({ success: true, message: "Card updated successfully" })
+  } catch (err) {
+    console.log("Error when update card: ", err);
+    res.json({ success: false, message: "Card updated failed" })
+  }
+});
+
+app.get('/api/getall/:setId', async (req, res) => {
+  try {
+      const setId = req.params.setId;
+      if (!setId) {
+          return res.status(400).json({ success: false, message: 'Set ID is required.' })
+      }
+      
+      const response = await fetchAllFlashCardsAndAnswers(setId);
+      
+      if (!response.success) {
+          return res.status(500).json({ success: false, message: "Failed to fetch cards" })
+      }
+      
+      res.json({ success: true, data: response.data })
+  } catch (err) {
+      res.status(500).json({ success: false, message: "Error: " + err })
+  }
 })
 
 app.listen(3001, () => {
